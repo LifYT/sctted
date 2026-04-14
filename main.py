@@ -223,7 +223,8 @@ async def admin_close_handler(callback: types.CallbackQuery):
 async def user_close(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.answer("🤝 Тикет закрыт. Вы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"🚫 Юзер <code>{callback.from_user.id}</code> закрыл тикет сам.")
+    username = f"@{callback.from_user.username}" if callback.from_user.username else f"(без юзернейма, ID: {callback.from_user.id})"
+    await bot.send_message(ADMIN_ID, f"🚫 Юзер {username} закрыл тикет сам.")
     await callback.answer()
 
 # --- ПОКУПКА ---
