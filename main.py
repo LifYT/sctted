@@ -132,9 +132,24 @@ async def adm_addpromo_step2(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка. Формат: <code>PROMO 15</code>")
 
-# --- ТИКЕТЫ (ПОДДЕРЖКА) ---
-# --- ЛОГИКА ТИКЕТОВ (ПОДДЕРЖКА) ---
+# ✅ ФИКС 2: Список ключей теперь работает
+@dp.callback_query(F.data == "adm_list", F.from_user.id == ADMIN_ID)
+async def adm_list_keys(callback: types.CallbackQuery):
+    if not keys_db:
+        await callback.message.answer("📭 Список ключей пуст.", reply_markup=admin_main_kb())
+    else:
+        lines = ["📜 <b>Список активных ключей:</b>\n"]
+        for key, data in keys_db.items():
+            plan_name = PLANS.get(data['plan'], data['plan'])
+            lines.append(f"🔑 <code>{key}</code> — {plan_name} | {data['desc']}")
+        # Телеграм лимит ~4096 символов, режем если много ключей
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "\n\n...и ещё больше ключей."
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=admin_main_kb())
+    await callback.answer()
 
+# --- ТИКЕТЫ (ПОДДЕРЖКА) ---
 @dp.callback_query(F.data == "support")
 async def support_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
@@ -151,13 +166,11 @@ async def support_start(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(TicketFlow.in_ticket)
 async def ticket_relay(message: types.Message):
-    # Игнорируем команды
     if message.text and message.text.startswith("/"): return
     
     username = f"@{message.from_user.username}" if message.from_user.username else "Скрыт"
     user_text = message.text or "[Вложение: фото/файл/эмодзи]"
     
-    # Формируем красивое сообщение для админа
     report_text = (
         f"📨 <b>Сообщение от юзера</b>\n"
         f"👤 Юзер: {username}\n"
@@ -168,7 +181,6 @@ async def ticket_relay(message: types.Message):
         f"<i>[TICKET_ID: {message.from_user.id}]</i>"
     )
     
-    # Если пользователь прислал медиа (фото/файл), админу придет текст + само медиа
     if message.photo or message.document or message.video:
         await bot.copy_message(
             ADMIN_ID, 
@@ -179,7 +191,6 @@ async def ticket_relay(message: types.Message):
             reply_markup=admin_close_ticket_kb(message.from_user.id)
         )
     else:
-        # Если просто текст
         await bot.send_message(
             ADMIN_ID, 
             report_text, 
@@ -191,9 +202,7 @@ async def ticket_relay(message: types.Message):
 async def admin_reply(message: types.Message):
     try:
         raw_text = message.reply_to_message.text or message.reply_to_message.caption
-        # Достаем ID из скрытого тега TICKET_ID
         uid = int(raw_text.split("[TICKET_ID:")[1].split("]")[0])
-        
         await bot.copy_message(uid, message.chat.id, message.message_id)
         await message.answer(f"✅ Ответ доставлен пользователю <code>{uid}</code>", reply_markup=admin_close_ticket_kb(uid), parse_mode="HTML")
     except:
@@ -216,6 +225,7 @@ async def user_close(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("🤝 Тикет закрыт. Вы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
     await bot.send_message(ADMIN_ID, f"🚫 Юзер <code>{callback.from_user.id}</code> закрыл тикет сам.")
     await callback.answer()
+
 # --- ПОКУПКА ---
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
@@ -239,7 +249,6 @@ async def buy_promo(message: types.Message, state: FSMContext):
     discount = promo_db[code]["percent"] if code in promo_db else 0
     await state.update_data(discount=discount)
     await state.set_state(BuyFlow.waiting_for_plan)
-    
     text = f"✅ Промокод на {discount}% применен!" if discount > 0 else "❌ Неверный промокод. Тарифы без скидки:"
     await message.answer(text, reply_markup=plans_kb(discount), parse_mode="HTML")
 
@@ -256,19 +265,15 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     discount = data.get("discount", 0)
     final_price = math.ceil(price * (1 - discount / 100))
     
-    # Включаем режим тикета для юзера
     await state.set_state(TicketFlow.in_ticket)
     
-    # Сообщение юзеру
     await callback.message.answer(
         f"🧾 К оплате: <b>{final_price}₽</b>\nЖдите подробной инструкции к оплате.", 
         reply_markup=user_close_ticket_kb(), 
         parse_mode="HTML"
     )
     
-    # Сообщение админу с юзернеймом
     username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
-    
     admin_text = (
         f"💰 <b>НОВЫЙ ЗАКАЗ</b>\n"
         f"👤 Юзер: {username}\n"
@@ -277,15 +282,10 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
         f"💵 Цена: {final_price}₽\n"
         f"<i>[TICKET_ID: {callback.from_user.id}]</i>"
     )
-    
-    await bot.send_message(
-        ADMIN_ID, 
-        admin_text, 
-        reply_markup=admin_close_ticket_kb(callback.from_user.id), 
-        parse_mode="HTML"
-    )
+    await bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
-# --- РАССЫЛКА И ПРОЧЕЕ ---
+
+# --- РАССЫЛКА ---
 @dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
 async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("📢 Отправьте сообщение для рассылки:")
@@ -305,12 +305,9 @@ async def perform_broadcast(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "free_version")
 async def free_v(callback: types.CallbackQuery):
-    # Создаем клавиатуру с кнопкой скачивания и возвратом
     download_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Скачать SacredVisuals (JAR)", url=FREE_VERSION_URL)],
     ])
-    
-    # Текст с пошаговой инструкцией
     instruction_text = (
         "🆓 <b>Бесплатная версия SacredVisuals</b>\n\n"
         "<b>Инструкция по установке:</b>\n"
@@ -319,12 +316,11 @@ async def free_v(callback: types.CallbackQuery):
         "3️⃣ Переместите файлы <code>FabricAPI</code> и <code>SacredVisuals-FREE</code> в папку <code>mods</code>\n\n"
         "✨ <b>Удачного использования!</b>"
     )
-    
     await callback.message.edit_text(
         text=instruction_text,
         reply_markup=download_kb,
         parse_mode="HTML",
-        disable_web_page_preview=True  # Чтобы не вылезало превью сайта с модами
+        disable_web_page_preview=True
     )
     await callback.answer()
 
@@ -336,16 +332,48 @@ async def adm_stats(callback: types.CallbackQuery):
 async def key_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("⌨️ Введите ключ:")
     await state.set_state(KeyFlow.waiting_for_key)
+    await callback.answer()
 
+# ✅ ФИКС 1 и 3: уведомление админу + правильное сообщение об ошибке
 @dp.message(KeyFlow.waiting_for_key)
 async def key_check(message: types.Message, state: FSMContext):
     key = message.text.strip()
     if key in keys_db:
         data = keys_db.pop(key)
+        plan_name = PLANS.get(data['plan'], data['plan'])
+
+        # Пользователю
         await state.set_state(TicketFlow.in_ticket)
-        await message.answer(f"✅ Ключ на {PLANS[data['plan']]} активирован!", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
+        await message.answer(
+            f"✅ Ключ на <b>{plan_name}</b> активирован!\n"
+            f"📝 {data['desc']}\n\nОжидайте — вам выдадут доступ.",
+            reply_markup=user_close_ticket_kb(),
+            parse_mode="HTML"
+        )
+
+        # Уведомление админу
+        username = f"@{message.from_user.username}" if message.from_user.username else "Скрыт"
+        admin_text = (
+            f"🔑 <b>КЛЮЧ АКТИВИРОВАН</b>\n"
+            f"👤 Юзер: {username}\n"
+            f"🆔 <code>{message.from_user.id}</code>\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"🗝 Ключ: <code>{key}</code>\n"
+            f"📦 Тариф: {plan_name}\n"
+            f"📝 Описание: {data['desc']}\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"<i>[TICKET_ID: {message.from_user.id}]</i>"
+        )
+        await bot.send_message(
+            ADMIN_ID,
+            admin_text,
+            reply_markup=admin_close_ticket_kb(message.from_user.id),
+            parse_mode="HTML"
+        )
     else:
-        await message.answer("❌ Ключ не найден.")
+        # ✅ ФИКС 3: правильный текст если ключ не найден
+        await message.answer("❌ Ключ не найден или уже был использован.")
+        await state.clear()
 
 async def main():
     await dp.start_polling(bot)
