@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import logging
 import sys
@@ -23,10 +24,25 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- БАЗЫ (Временные) ---
-promo_db = {"LIF": {"percent": 10, "desc": "Скидка 10%"}}
-users_db = set()
-keys_db = {}
+# --- ФАЙЛЫ БАЗ ---
+USERS_FILE = "users_db.json"
+KEYS_FILE = "keys_db.json"
+PROMO_FILE = "promo_db.json"
+
+def load_json(path, default):
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return default
+
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# --- БАЗЫ ---
+promo_db = load_json(PROMO_FILE, {"LIF": {"percent": 10, "desc": "Скидка 10%"}})
+users_db = set(load_json(USERS_FILE, []))
+keys_db = load_json(KEYS_FILE, {})
 
 PLANS = {"week": "Неделя", "month": "Месяц", "life": "Навсегда"}
 
@@ -89,6 +105,7 @@ def plans_kb(discount_percent=0):
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     users_db.add(message.from_user.id)
+    save_json(USERS_FILE, list(users_db))
     await message.answer(f"<b>👋 Привет, {message.from_user.first_name}!</b>\n\n✨ Добро пожаловать в <b>SacredVisuals</b>.", reply_markup=main_keyboard(), parse_mode="HTML")
 
 @dp.message(Command("admin"))
@@ -109,6 +126,7 @@ async def adm_addkey_step2(message: types.Message, state: FSMContext):
     try:
         parts = message.text.split(maxsplit=2)
         keys_db[parts[0]] = {"plan": parts[1], "desc": parts[2]}
+        save_json(KEYS_FILE, keys_db)
         await message.answer(f"✅ Ключ <code>{parts[0]}</code> добавлен!", reply_markup=admin_main_kb(), parse_mode="HTML")
         await state.clear()
     except:
@@ -127,6 +145,7 @@ async def adm_addpromo_step2(message: types.Message, state: FSMContext):
         code = parts[0].upper()
         perc = int(parts[1])
         promo_db[code] = {"percent": perc, "desc": f"Скидка {perc}%"}
+        save_json(PROMO_FILE, promo_db)
         await message.answer(f"✅ Промокод <code>{code}</code> на {perc}% добавлен!", reply_markup=admin_main_kb(), parse_mode="HTML")
         await state.clear()
     except:
@@ -215,7 +234,13 @@ async def admin_close_handler(callback: types.CallbackQuery):
         user_state = dp.fsm.resolve_context(bot, uid, uid)
         await user_state.clear()
         await bot.send_message(uid, "✅ <b>Администратор закрыл тикет.</b>\nВы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-        await callback.message.edit_text(f"🚫 Тикет с пользователем <code>{uid}</code> закрыт.")
+        # Вытаскиваем юзернейм из текста сообщения
+        raw_text = callback.message.text or callback.message.caption or ""
+        try:
+            username = raw_text.split("Юзер:")[1].split("\n")[0].strip()
+        except:
+            username = f"ID: {uid}"
+        await callback.message.edit_text(f"🚫 Тикет закрыт.\n👤 Юзер: {username}", parse_mode="HTML")
     except:
         await callback.answer("Ошибка закрытия")
 
@@ -341,6 +366,7 @@ async def key_check(message: types.Message, state: FSMContext):
     key = message.text.strip()
     if key in keys_db:
         data = keys_db.pop(key)
+        save_json(KEYS_FILE, keys_db)
         plan_name = PLANS.get(data['plan'], data['plan'])
 
         # Пользователю
