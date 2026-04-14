@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
 
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -132,7 +133,7 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     await bot.send_message(ADMIN_ID, f"💰 **НОВЫЙ ЗАКАЗ**\n[TICKET_ID: {callback.from_user.id}]\n👤 Юзер: @{callback.from_user.username}\n📦 Тариф: {name}\n💵 К оплате: {final_price}₽\n🎟 Промо: {promo}")
 
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer(f"🧾 **Заявка принята!**\nСумма: {final_price}₽\n\n💬 Следуйте инструкциям от администратора:", 
+    await callback.message.answer(f"🧾 **Заявка принята!**\nСумма: {final_price}₽\n\n💬 Напишите сообщение или прикрепите чек оплаты ниже:", 
                                  reply_markup=user_close_ticket_kb(), parse_mode="Markdown")
     await callback.answer()
 
@@ -211,18 +212,29 @@ async def user_close_callback(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(Command("close"))
 async def close_ticket_cmd(message: types.Message, state: FSMContext):
+    # Если пишет АДМИН в ответ на сообщение пользователя
     if message.from_user.id == ADMIN_ID and message.reply_to_message:
         try:
             raw_text = message.reply_to_message.text or message.reply_to_message.caption
-            uid = int(raw_text.split("[TICKET_ID:")[1].split("]")[0])
-            u_state = FSMContext(storage=dp.storage, key=types.StorageKey(bot_id=bot.id, chat_id=uid, user_id=uid))
-            await u_state.clear()
-            await bot.send_message(uid, "✅ **Тикет закрыт админом.**", reply_markup=main_keyboard())
-            await message.answer(f"✅ Тикет {uid} закрыт.")
-        except: pass
+            if "[TICKET_ID:" in raw_text:
+                uid = int(raw_text.split("[TICKET_ID:")[1].split("]")[0])
+                
+                # Создаем ключ для доступа к FSM другого пользователя
+                user_key = StorageKey(bot_id=bot.id, chat_id=uid, user_id=uid)
+                await dp.storage.set_state(user_key, None) # Сбрасываем стейт пользователю
+                
+                await bot.send_message(uid, "✅ **Ваш тикет был закрыт администратором.**", reply_markup=main_keyboard())
+                await message.answer(f"✅ Тикет пользователя {uid} успешно закрыт.")
+            else:
+                await message.answer("❌ Ошибка: Reply должен быть на сообщение с [TICKET_ID: ...]")
+        except Exception as e:
+            await message.answer(f"❌ Ошибка при закрытии: {e}")
     else:
+        # Если пишет обычный пользователь (или админ сам себе без реплая)
         await state.clear()
         await message.answer("🤝 Обращение завершено.", reply_markup=main_keyboard())
+        if message.from_user.id != ADMIN_ID:
+            await bot.send_message(ADMIN_ID, f"🚫 **Тикет закрыт пользователем**\n[TICKET_ID: {message.from_user.id}]")
 
 # --- АКТИВАЦИЯ КЛЮЧА ---
 
