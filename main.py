@@ -267,7 +267,6 @@ async def free_v(callback: types.CallbackQuery):
     # Создаем клавиатуру с кнопкой скачивания и возвратом
     download_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Скачать SacredVisuals (JAR)", url=FREE_VERSION_URL)],
-        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_to_main")]
     ])
     
     # Текст с пошаговой инструкцией
