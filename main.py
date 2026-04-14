@@ -220,7 +220,7 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     
     # Сообщение юзеру
     await callback.message.answer(
-        f"🧾 К оплате: <b>{final_price}₽</b>\nОтправьте скриншот чека прямо сюда в чат.", 
+        f"🧾 К оплате: <b>{final_price}₽</b>\nЖдите подробной инструкции к оплате.", 
         reply_markup=user_close_ticket_kb(), 
         parse_mode="HTML"
     )
