@@ -179,13 +179,18 @@ async def user_close(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(BuyFlow.waiting_for_promo)
-    await callback.message.answer("🎟 <b>Введите промокод</b> (или нажмите пропустить):", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
+    await callback.message.answer("🎟 <b>Введите промокод</b> (или нажмите пропустить):", 
+                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                     [InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]
+                                 ]), parse_mode="HTML")
+    await callback.answer()
 
 @dp.callback_query(F.data == "skip_promo", BuyFlow.waiting_for_promo)
 async def buy_skip(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(discount=0)
     await state.set_state(BuyFlow.waiting_for_plan)
     await callback.message.edit_text("🛒 <b>Выберите тариф:</b>", reply_markup=plans_kb(0), parse_mode="HTML")
+    await callback.answer()
 
 @dp.message(BuyFlow.waiting_for_promo)
 async def buy_promo(message: types.Message, state: FSMContext):
@@ -193,18 +198,52 @@ async def buy_promo(message: types.Message, state: FSMContext):
     discount = promo_db[code]["percent"] if code in promo_db else 0
     await state.update_data(discount=discount)
     await state.set_state(BuyFlow.waiting_for_plan)
-    await message.answer(f"✅ Промокод на {discount}% применен!" if discount > 0 else "❌ Неверный промокод.", reply_markup=plans_kb(discount), parse_mode="HTML")
+    
+    text = f"✅ Промокод на {discount}% применен!" if discount > 0 else "❌ Неверный промокод. Тарифы без скидки:"
+    await message.answer(text, reply_markup=plans_kb(discount), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("plan_"), BuyFlow.waiting_for_plan)
 async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plans_map = {"plan_week": ("Неделя", 69), "plan_month": ("Месяц", 189), "plan_life": ("Навсегда", 369)}
-    name, price = plans_map[callback.data]
-    final_price = math.ceil(price * (1 - data.get("discount", 0) / 100))
+    
+    plan_data = plans_map.get(callback.data)
+    if not plan_data:
+        return await callback.answer("Ошибка выбора тарифа")
+        
+    name, price = plan_data
+    discount = data.get("discount", 0)
+    final_price = math.ceil(price * (1 - discount / 100))
+    
+    # Включаем режим тикета для юзера
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer(f"🧾 К оплате: <b>{final_price}₽</b>\nОтправьте скриншот чека сюда.", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
-username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
-    await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n👤 Юзер: {username}\n🆔 <code>{callback.from_user.id}</code>\n📦 Тариф: {name}\n💵 Цена: {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
+    
+    # Сообщение юзеру
+    await callback.message.answer(
+        f"🧾 К оплате: <b>{final_price}₽</b>\nОтправьте скриншот чека прямо сюда в чат.", 
+        reply_markup=user_close_ticket_kb(), 
+        parse_mode="HTML"
+    )
+    
+    # Сообщение админу с юзернеймом
+    username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
+    
+    admin_text = (
+        f"💰 <b>НОВЫЙ ЗАКАЗ</b>\n"
+        f"👤 Юзер: {username}\n"
+        f"🆔 <code>{callback.from_user.id}</code>\n"
+        f"📦 Тариф: {name}\n"
+        f"💵 Цена: {final_price}₽\n"
+        f"<i>[TICKET_ID: {callback.from_user.id}]</i>"
+    )
+    
+    await bot.send_message(
+        ADMIN_ID, 
+        admin_text, 
+        reply_markup=admin_close_ticket_kb(callback.from_user.id), 
+        parse_mode="HTML"
+    )
+    await callback.answer()
 # --- РАССЫЛКА И ПРОЧЕЕ ---
 @dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
 async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
