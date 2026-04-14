@@ -133,29 +133,71 @@ async def adm_addpromo_step2(message: types.Message, state: FSMContext):
         await message.answer("❌ Ошибка. Формат: <code>PROMO 15</code>")
 
 # --- ТИКЕТЫ (ПОДДЕРЖКА) ---
+# --- ЛОГИКА ТИКЕТОВ (ПОДДЕРЖКА) ---
+
 @dp.callback_query(F.data == "support")
 async def support_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer("🆘 <b>Чат открыт!</b> Напишите ваше сообщение:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"🆘 <b>НОВЫЙ ТИКЕТ</b>\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
+    await callback.message.answer("🆘 <b>Чат открыт!</b> Напишите ваше сообщение прямо сюда:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
+    
+    username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
+    await bot.send_message(
+        ADMIN_ID, 
+        f"📩 <b>НОВЫЙ ТИКЕТ ОТКРЫТ</b>\n👤 Юзер: {username}\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>", 
+        reply_markup=admin_close_ticket_kb(callback.from_user.id), 
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 @dp.message(TicketFlow.in_ticket)
 async def ticket_relay(message: types.Message):
+    # Игнорируем команды
     if message.text and message.text.startswith("/"): return
-    header = f"📩 <b>Сообщение от юзера</b>\n🆔 <code>{message.from_user.id}</code>\n<i>[TICKET_ID: {message.from_user.id}]</i>\n"
-    await bot.copy_message(ADMIN_ID, message.chat.id, message.message_id, caption=f"{header}{message.caption or ''}", parse_mode="HTML")
+    
+    username = f"@{message.from_user.username}" if message.from_user.username else "Скрыт"
+    user_text = message.text or "[Вложение: фото/файл/эмодзи]"
+    
+    # Формируем красивое сообщение для админа
+    report_text = (
+        f"📨 <b>Сообщение от юзера</b>\n"
+        f"👤 Юзер: {username}\n"
+        f"🆔 <code>{message.from_user.id}</code>\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"📝 <b>Текст:</b> {user_text}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"<i>[TICKET_ID: {message.from_user.id}]</i>"
+    )
+    
+    # Если пользователь прислал медиа (фото/файл), админу придет текст + само медиа
+    if message.photo or message.document or message.video:
+        await bot.copy_message(
+            ADMIN_ID, 
+            message.chat.id, 
+            message.message_id, 
+            caption=report_text, 
+            parse_mode="HTML",
+            reply_markup=admin_close_ticket_kb(message.from_user.id)
+        )
+    else:
+        # Если просто текст
+        await bot.send_message(
+            ADMIN_ID, 
+            report_text, 
+            parse_mode="HTML",
+            reply_markup=admin_close_ticket_kb(message.from_user.id)
+        )
 
 @dp.message(F.chat.id == ADMIN_ID, F.reply_to_message)
 async def admin_reply(message: types.Message):
     try:
         raw_text = message.reply_to_message.text or message.reply_to_message.caption
+        # Достаем ID из скрытого тега TICKET_ID
         uid = int(raw_text.split("[TICKET_ID:")[1].split("]")[0])
+        
         await bot.copy_message(uid, message.chat.id, message.message_id)
-        # При ответе даем админу кнопку закрытия под рукой
-        await message.answer(f"✅ Отправлено юзеру <code>{uid}</code>", reply_markup=admin_close_ticket_kb(uid), parse_mode="HTML")
+        await message.answer(f"✅ Ответ доставлен пользователю <code>{uid}</code>", reply_markup=admin_close_ticket_kb(uid), parse_mode="HTML")
     except:
-        pass
+        await message.answer("❌ Ошибка: ответьте на сообщение с ID тикета.")
 
 @dp.callback_query(F.data.startswith("adm_close_"))
 async def admin_close_handler(callback: types.CallbackQuery):
@@ -163,18 +205,17 @@ async def admin_close_handler(callback: types.CallbackQuery):
     try:
         user_state = dp.fsm.resolve_context(bot, uid, uid)
         await user_state.clear()
-        await bot.send_message(uid, "✅ <b>Администратор закрыл тикет.</b>\nВы вернулись в главное меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-        await callback.message.edit_text(f"🚫 Тикет с пользователем {uid} успешно закрыт.")
-    except Exception as e:
-        await callback.answer("Ошибка при закрытии.")
+        await bot.send_message(uid, "✅ <b>Администратор закрыл тикет.</b>\nВы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
+        await callback.message.edit_text(f"🚫 Тикет с пользователем <code>{uid}</code> закрыт.")
+    except:
+        await callback.answer("Ошибка закрытия")
 
 @dp.callback_query(F.data == "user_close_ticket")
 async def user_close(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.answer("🤝 Тикет закрыт. Вы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"🚫 Юзер {callback.from_user.id} закрыл тикет сам.")
+    await bot.send_message(ADMIN_ID, f"🚫 Юзер <code>{callback.from_user.id}</code> закрыл тикет сам.")
     await callback.answer()
-
 # --- ПОКУПКА ---
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
