@@ -132,7 +132,7 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     await bot.send_message(ADMIN_ID, f"💰 **НОВЫЙ ЗАКАЗ**\n[TICKET_ID: {callback.from_user.id}]\n👤 Юзер: @{callback.from_user.username}\n📦 Тариф: {name}\n💵 К оплате: {final_price}₽\n🎟 Промо: {promo}")
 
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer(f"🧾 **Заявка принята!**\nСумма: {final_price}₽\n\n💬 Прикрепите чек оплаты ниже:", 
+    await callback.message.answer(f"🧾 **Заявка принята!**\nСумма: {final_price}₽\n\n💬 Следуйте инструкциям от администратора:", 
                                  reply_markup=user_close_ticket_kb(), parse_mode="Markdown")
     await callback.answer()
 
