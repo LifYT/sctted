@@ -21,7 +21,7 @@ if not API_TOKEN:
 ADMIN_ID = 5822741823
 CHANNEL_ID = '@sacredvisuals'
 CHANNEL_URL = 'https://t.me/sacredvisuals'
-FREE_VERSION_URL = "https://t.me/sacredvisuals/1" # Твоя ссылка
+FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/fud621oa9imlxniv4vpx6/SacredVisuals-1.21.4-FREE.jar?rlkey=enae4vae8pszr96adcgewzf3c&st=hhgt0vqf&dl=1" # Твоя ссылка
 
 logging.basicConfig(level=logging.INFO)
 
