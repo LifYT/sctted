@@ -195,7 +195,7 @@ async def admin_reply(message: types.Message):
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(BuyFlow.waiting_for_promo)
-    await callback.message.answer("🎟 <b>Промокод?</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
+    await callback.message.answer("🎟 <b>Есть ли у вас промокод? Если нет, то нажмите пропустить</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "skip_promo", BuyFlow.waiting_for_promo)
