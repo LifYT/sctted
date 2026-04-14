@@ -16,12 +16,12 @@ if sys.platform == 'win32':
 API_TOKEN = os.getenv("BOT_TOKEN")
 
 if not API_TOKEN:
-    sys.exit("❌ ОШИБКА: Переменная BOT_TOKEN не найдена в настройках хостинга.")
+    sys.exit("❌ ОШИБКА: Переменная BOT_TOKEN не найдена.")
 
 ADMIN_ID = 5822741823
 CHANNEL_ID = '@sacredvisuals'
 CHANNEL_URL = 'https://t.me/sacredvisuals'
-FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/fud621oa9imlxniv4vpx6/SacredVisuals-1.21.4-FREE.jar?rlkey=enae4vae8pszr96adcgewzf3c&st=hhgt0vqf&dl=1" # Твоя ссылка
+FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/fud621oa9imlxniv4vpx6/SacredVisuals-1.21.4-FREE.jar?rlkey=enae4vae8pszr96adcgewzf3c&st=hhgt0vqf&dl=1"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -29,7 +29,7 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
 # --- БАЗЫ ---
-promo_db = {"LIF": {"percent": 10, "desc": "Скидка 10%"}}
+promo_db = {"LIF": {"percent": 10, "desc": "Скидка 10%"} }
 users_db = set()
 keys_db = {}
 
@@ -53,16 +53,7 @@ class TicketFlow(StatesGroup):
 class AdminStates(StatesGroup):
     waiting_for_ad = State()
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ---
-
-async def is_subscribed(user_id: int) -> bool:
-    if user_id == ADMIN_ID:
-        return True
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
+# --- КЛАВИАТУРЫ ---
 
 def main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -72,21 +63,20 @@ def main_keyboard():
         [InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")]
     ])
 
-def sub_keyboard():
+# Кнопка закрытия для пользователя
+def user_close_ticket_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Подписаться на канал", url=CHANNEL_URL)],
-        [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]
+        [InlineKeyboardButton(text="❌ Закрыть обращение", callback_data="user_close_ticket")]
     ])
 
-def plans_kb(discount_percent=0):
-    plans = [("plan_week", "Неделя", 69), ("plan_month", "Месяц", 189), ("plan_life", "Навсегда", 369)]
-    buttons = [[InlineKeyboardButton(text=f"{n} — {math.ceil(p*(1-discount_percent/100))}₽", callback_data=c)] for c, n, p in plans]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+def download_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать", url=FREE_VERSION_URL)]
+    ])
 
 def admin_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="adm_broadcast")],
-        [InlineKeyboardButton(text="🔑 Ключи", callback_data="adm_list_keys")],
         [InlineKeyboardButton(text="❌ Закрыть меню", callback_data="adm_close_menu")]
     ])
 
@@ -96,50 +86,63 @@ def admin_kb():
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     users_db.add(message.from_user.id)
-    if await is_subscribed(message.from_user.id):
-        await message.answer(f"👋 Привет, {message.from_user.first_name}!\n\n✨ Добро пожаловать.", reply_markup=main_keyboard())
-    else:
-        await message.answer("❌ Подпишитесь на канал для доступа:", reply_markup=sub_keyboard())
+    await message.answer(f"👋 Привет, {message.from_user.first_name}!\n✨ Добро пожаловать.", reply_markup=main_keyboard())
 
 @dp.callback_query(F.data == "free_version")
 async def free_version_handler(callback: types.CallbackQuery):
-    await callback.message.answer(f"🆓 **Бесплатная версия доступна тут:**\n\n{FREE_VERSION_URL}", parse_mode="Markdown")
+    await callback.message.answer(
+        "🆓 **Бесплатная версия SacredVisuals**\n\nНажмите на кнопку ниже:",
+        reply_markup=download_keyboard(),
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
-@dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
-async def cmd_admin(message: types.Message):
-    await message.answer(f"🛠 Админ-панель\nЮзеров: {len(users_db)}", reply_markup=admin_kb())
+# --- ЛОГИКА ЗАКРЫТИЯ (КНОПКА И КОМАНДА) ---
 
-# --- ИСПРАВЛЕННЫЙ ТИКЕТ И /CLOSE ---
+@dp.callback_query(F.data == "user_close_ticket")
+async def user_close_callback(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("🤝 Обращение завершено. Вы вернулись в меню.", reply_markup=main_keyboard())
+    await bot.send_message(ADMIN_ID, f"🚫 **Юзер @{callback.from_user.username} закрыл тикет нажатием кнопки.**", parse_mode="Markdown")
+    await callback.answer()
 
 @dp.message(Command("close"))
 async def close_ticket_cmd(message: types.Message, state: FSMContext):
-    # Если пишет админ в ответ на тикет
     if message.from_user.id == ADMIN_ID and message.reply_to_message:
         try:
             text = message.reply_to_message.text or message.reply_to_message.caption
             uid = int(text.split("[TICKET_ID:")[1].split("]")[0])
             user_state = FSMContext(storage=dp.storage, key=types.StorageKey(bot_id=bot.id, chat_id=uid, user_id=uid))
             await user_state.clear()
-            await bot.send_message(uid, "✅ Ваше обращение закрыто администратором.", reply_markup=main_keyboard())
-            await message.answer(f"✅ Тикет {uid} закрыт.")
+            await bot.send_message(uid, "✅ **Ваш тикет закрыт администратором.**", reply_markup=main_keyboard(), parse_mode="Markdown")
+            await message.answer(f"✅ Тикет [ID: {uid}] закрыт.")
         except:
             await message.answer("❌ Ошибка: ответьте на сообщение из тикета.")
-    # Если пишет сам пользователь, чтобы выйти из режима поддержки
     else:
         current_state = await state.get_state()
         if current_state == TicketFlow.in_ticket:
             await state.clear()
-            await message.answer("🤝 Обращение завершено. Вы вернулись в меню.", reply_markup=main_keyboard())
+            await message.answer("🤝 Обращение завершено.", reply_markup=main_keyboard())
+            await bot.send_message(ADMIN_ID, f"🚫 **Юзер @{message.from_user.username} закрыл тикет командой.**")
         else:
-            await message.answer("У вас нет активных тикетов.")
+            await message.answer("Нет активных тикетов.")
+
+# --- ТИКЕТЫ ---
+
+@dp.callback_query(F.data == "support")
+async def support_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(TicketFlow.in_ticket)
+    await callback.message.answer(
+        "💬 Вы в чате поддержки. Напишите ваш вопрос.\n\n_Вы можете закрыть обращение в любой момент кнопкой ниже:_ ", 
+        reply_markup=user_close_ticket_kb(),
+        parse_mode="Markdown"
+    )
+    await bot.send_message(ADMIN_ID, f"🆕 Тикет открыт\n[TICKET_ID: {callback.from_user.id}]\n👤 @{callback.from_user.username}")
 
 @dp.message(TicketFlow.in_ticket)
 async def ticket_msg_handler(message: types.Message):
-    # Если пользователь в тикете прислал НЕ команду, пересылаем админу
-    if message.text and message.text.startswith("/"):
-        return # Игнорируем команды, чтобы их обработал соответствующий хендлер
-
+    if message.text and message.text.startswith("/"): return 
+    
     await bot.send_message(ADMIN_ID, f"[TICKET_ID: {message.from_user.id}]\n👤 @{message.from_user.username}")
     await bot.copy_message(chat_id=ADMIN_ID, from_chat_id=message.chat.id, message_id=message.message_id)
 
@@ -152,13 +155,7 @@ async def admin_reply(message: types.Message):
         await bot.copy_message(chat_id=uid, from_chat_id=message.chat.id, message_id=message.message_id)
     except: pass
 
-# --- ОСТАЛЬНОЕ ---
-
-@dp.callback_query(F.data == "support")
-async def support_start(callback: types.CallbackQuery, state: FSMContext):
-    await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer("💬 Вы в чате поддержки. Пишите сообщение.\nЧтобы выйти, напишите /close", parse_mode="Markdown")
-    await bot.send_message(ADMIN_ID, f"🆕 Тикет\n[TICKET_ID: {callback.from_user.id}]\n👤 @{callback.from_user.username}")
+# --- ПРОЧЕЕ ---
 
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
@@ -168,32 +165,22 @@ async def buy_start(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "skip_promo", BuyFlow.waiting_for_promo)
 async def buy_skip(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(promo="Нет", discount=0)
-    await callback.message.edit_text("🛒 Выберите тариф:", reply_markup=plans_kb(0))
+    await callback.message.edit_text("🛒 Выберите тариф:", reply_markup=plans_kb(0) if 'plans_kb' in globals() else None) # Здесь используется твоя функция plans_kb
     await state.set_state(BuyFlow.waiting_for_plan)
 
 @dp.callback_query(F.data.startswith("plan_"), BuyFlow.waiting_for_plan)
 async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer("🧾 Заявка создана. Опишите ваш вопрос или подтвердите оплату здесь:")
+    await callback.message.answer("🧾 Заявка создана. Опишите вопрос или прикрепите чек оплаты:", reply_markup=user_close_ticket_kb())
     await bot.send_message(ADMIN_ID, f"🆕 Новый заказ\n[TICKET_ID: {callback.from_user.id}]\n👤 @{callback.from_user.username}")
 
-@dp.callback_query(F.data == "activate_key")
-async def key_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("⌨️ Введите ключ:")
-    await state.set_state(KeyFlow.waiting_for_key)
-
-@dp.message(KeyFlow.waiting_for_key)
-async def key_check(message: types.Message, state: FSMContext):
-    # Тут твоя логика проверки ключа
-    await message.answer("❌ Ключ не найден или уже активирован.")
-    await state.clear()
-
-@dp.callback_query(F.data == "adm_close_menu")
-async def adm_close(c: types.CallbackQuery): await c.message.delete()
+@dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
+async def cmd_admin(message: types.Message):
+    await message.answer(f"🛠 Админ-панель", reply_markup=admin_kb())
 
 @dp.callback_query(F.data == "adm_broadcast")
 async def broadcast_start(c: types.CallbackQuery, state: FSMContext):
-    await c.message.answer("Отправьте сообщение для рассылки:")
+    await c.message.answer("Введите текст рассылки:")
     await state.set_state(AdminStates.waiting_for_ad)
 
 @dp.message(AdminStates.waiting_for_ad, F.from_user.id == ADMIN_ID)
@@ -203,6 +190,9 @@ async def do_broadcast(message: types.Message, state: FSMContext):
         except: continue
     await message.answer("✅ Готово")
     await state.clear()
+
+@dp.callback_query(F.data == "adm_close_menu")
+async def adm_close(c: types.CallbackQuery): await c.message.delete()
 
 async def main():
     await dp.start_polling(bot)
