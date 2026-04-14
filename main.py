@@ -220,7 +220,7 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     final_price = math.ceil(price * (1 - data.get("discount", 0) / 100))
     await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n🆔 {callback.from_user.id}\n📦 {name}\n💵 {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", parse_mode="HTML")
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer(f"🧾 К оплате: <b>{final_price}₽</b>\nЖдем чек:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
+    await callback.message.answer(f"🧾 К оплате: <b>{final_price}₽</b>\nСледуйте инструкциям от администратора:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "activate_key")
