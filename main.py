@@ -164,7 +164,7 @@ async def admin_close_handler(callback: types.CallbackQuery):
         user_state = dp.fsm.resolve_context(bot, uid, uid)
         await user_state.clear()
         await bot.send_message(uid, "✅ <b>Администратор закрыл тикет.</b>\nВы вернулись в главное меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-        await callback.message.edit_text(f"🚫 Тикет с пользователем <code>{uid}</code> успешно закрыт.")
+        await callback.message.edit_text(f"🚫 Тикет с пользователем {uid} успешно закрыт.")
     except Exception as e:
         await callback.answer("Ошибка при закрытии.")
 
@@ -172,7 +172,7 @@ async def admin_close_handler(callback: types.CallbackQuery):
 async def user_close(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.answer("🤝 Тикет закрыт. Вы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"🚫 Юзер <code>{callback.from_user.id}</code> закрыл тикет сам.")
+    await bot.send_message(ADMIN_ID, f"🚫 Юзер {callback.from_user.id} закрыл тикет сам.")
     await callback.answer()
 
 # --- ПОКУПКА ---
@@ -203,8 +203,8 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     final_price = math.ceil(price * (1 - data.get("discount", 0) / 100))
     await state.set_state(TicketFlow.in_ticket)
     await callback.message.answer(f"🧾 К оплате: <b>{final_price}₽</b>\nОтправьте скриншот чека сюда.", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n🆔 <code>{callback.from_user.id}</code>\n📦 Тариф: {name}\n💵 Цена: {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
-
+username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
+    await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n👤 Юзер: {username}\n🆔 <code>{callback.from_user.id}</code>\n📦 Тариф: {name}\n💵 Цена: {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
 # --- РАССЫЛКА И ПРОЧЕЕ ---
 @dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
 async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
