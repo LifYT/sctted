@@ -88,7 +88,7 @@ def plans_kb(discount_percent=0):
 
 # --- ОБРАБОТЧИКИ ---
 
-@dp.message(Command("start"))
+@dp.message(Command("start"), state="*")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     users_db.add(message.from_user.id)
@@ -98,12 +98,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# --- АДМИН ПАНЕЛЬ (/admin) ---
+# --- АДМИН ПАНЕЛЬ (ОБНОВЛЕННАЯ) ---
 
-@dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
+@dp.message(Command("admin"), state="*")
 async def admin_panel(message: types.Message, state: FSMContext):
-    await state.clear()
-    await message.answer("🛠 <b>Панель администратора</b>\nВыберите действие:", reply_markup=admin_main_kb(), parse_mode="HTML")
+    # Проверка на админа внутри функции для надежности
+    if message.from_user.id != ADMIN_ID:
+        return 
+
+    await state.clear() # Принудительный сброс состояний
+    await message.answer(
+        "🛠 <b>Панель администратора</b>\nВыберите действие:", 
+        reply_markup=admin_main_kb(), 
+        parse_mode="HTML"
+    )
 
 @dp.callback_query(F.data == "adm_stats", F.from_user.id == ADMIN_ID)
 async def adm_stats(callback: types.CallbackQuery):
@@ -123,7 +131,7 @@ async def adm_list_keys(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "adm_addkey", F.from_user.id == ADMIN_ID)
 async def adm_addkey_step1(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("⌨️ Введите данные ключа в формате:\n<code>КЛЮЧ ТАРИФ ОПИСАНИЕ</code>\n\nТарифы: week, month, life", parse_mode="HTML")
+    await callback.message.answer("⌨️ Введите данные ключа в формате:\n<code>КЛЮЧ ТАРИФ ОПИСАНИЕ</code>\n\nТарифы: <b>week, month, life</b>", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_key_data)
     await callback.answer()
 
@@ -181,12 +189,13 @@ async def perform_broadcast(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "support")
 async def support_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer("🆘 <b>Чат с поддержкой открыт!</b>\nНапишите ваше сообщение:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
+    await callback.message.answer("🆘 <b>Чат с поддержкой открыт!</b>\nНапишите сообщение:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
     await bot.send_message(ADMIN_ID, f"🆘 <b>НОВЫЙ ТИКЕТ</b>\n👤 @{callback.from_user.username}\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
 
 @dp.message(TicketFlow.in_ticket)
 async def ticket_relay(message: types.Message):
+    if message.text == "/start" or message.text == "/admin": return
     header = f"📩 <b>Сообщение от юзера</b>\n👤 @{message.from_user.username} | 🆔 <code>{message.from_user.id}</code>\n━━━━━━━━━━━━━━\n"
     footer = f"\n━━━━━━━━━━━━━━\n<i>[TICKET_ID: {message.from_user.id}]</i>"
     await bot.copy_message(ADMIN_ID, message.chat.id, message.message_id, caption=f"{header}{message.caption or ''}{footer}", parse_mode="HTML")
@@ -259,7 +268,13 @@ async def key_check(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "free_version")
 async def free_v(callback: types.CallbackQuery):
-    await callback.message.answer("📥 <a href='" + FREE_VERSION_URL + "'>Скачать бесплатную версию</a>", parse_mode="HTML")
+    await callback.message.answer(f"📥 <a href='{FREE_VERSION_URL}'>Скачать бесплатную версию</a>", parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "user_close_ticket")
+async def user_close(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("🤝 Тикет закрыт. Нажмите /start для меню.")
     await callback.answer()
 
 async def main():
