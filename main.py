@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- БАЗЫ (Временные, очищаются при перезагрузке) ---
+# --- БАЗЫ (Временные) ---
 promo_db = {"LIF": {"percent": 10, "desc": "Скидка 10%"}}
 users_db = set()
 keys_db = {}
@@ -79,11 +79,14 @@ def download_keyboard():
         [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_to_main")]
     ])
 
+def close_ticket_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Закрыть тикет", callback_data="close_ticket")]
+    ])
+
 def admin_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="adm_broadcast")],
-        [InlineKeyboardButton(text="🔑 Добавить ключ", callback_data="adm_addkey")],
-        [InlineKeyboardButton(text="📜 Список ключей", callback_data="adm_list")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="adm_stats")]
     ])
 
@@ -106,15 +109,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
     
     if await is_subscribed(message.from_user.id):
         await message.answer(
-            f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n"
-            f"✨ Добро пожаловать в <b>SacredVisuals</b>.\n"
-            f"Выберите нужное действие ниже:",
+            f"👋 <b>Привет, {message.from_user.first_name}!</b>\n\n✨ Добро пожаловать в <b>SacredVisuals</b>.",
             reply_markup=main_keyboard(),
             parse_mode="HTML"
         )
     else:
         await message.answer(
-            "⚠️ <b>Доступ ограничен!</b>\nПожалуйста, подпишитесь на наш канал, чтобы продолжить работу с ботом.",
+            "⚠️ <b>Доступ ограничен!</b>\nПодпишитесь на канал, чтобы продолжить.",
             reply_markup=sub_keyboard(),
             parse_mode="HTML"
         )
@@ -122,19 +123,16 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "check_sub")
 async def check_subscription(callback: types.CallbackQuery):
     if await is_subscribed(callback.from_user.id):
-        await callback.message.edit_text("✅ <b>Подписка подтверждена!</b>\nВоспользуйтесь меню:", reply_markup=main_keyboard(), parse_mode="HTML")
+        await callback.message.edit_text("✅ <b>Подписка подтверждена!</b>", reply_markup=main_keyboard(), parse_mode="HTML")
     else:
-        await callback.answer("⚠️ Вы всё еще не подписаны на канал!", show_alert=True)
+        await callback.answer("⚠️ Вы всё еще не подписаны!", show_alert=True)
 
-# --- БЛОК СКАЧИВАНИЯ ---
+# --- СКАЧИВАНИЕ ---
 
 @dp.callback_query(F.data == "free_version")
 async def free_v(callback: types.CallbackQuery):
     await callback.message.edit_text(
-        "🆓 <b>Бесплатная версия SacredVisuals</b>\n\n"
-        "Вы можете скачать актуальную версию клиента через кнопку ниже.\n\n"
-        "⚙️ <b>Версия:</b> 1.21.4-FREE\n"
-        "📄 <b>Формат:</b> Executable JAR",
+        "🆓 <b>Бесплатная версия SacredVisuals</b>\n\nСкачайте JAR-файл по кнопке ниже.",
         reply_markup=download_keyboard(),
         parse_mode="HTML"
     )
@@ -144,7 +142,7 @@ async def free_v(callback: types.CallbackQuery):
 async def back_to_main_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(
-        f"👋 <b>Главное меню</b>\n\nВыберите действие:",
+        f"👋 <b>Главное меню</b>\nВыберите действие:",
         reply_markup=main_keyboard(),
         parse_mode="HTML"
     )
@@ -155,8 +153,19 @@ async def back_to_main_handler(callback: types.CallbackQuery, state: FSMContext)
 @dp.callback_query(F.data == "support")
 async def support_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer("🆘 <b>Чат с поддержкой открыт!</b>\nНапишите ваше сообщение, и администратор ответит вам здесь.", parse_mode="HTML")
+    await callback.message.answer(
+        "🆘 <b>Чат с поддержкой открыт!</b>\nНапишите ваше сообщение здесь. Чтобы вернуться в меню, нажмите кнопку ниже.",
+        reply_markup=close_ticket_kb(),
+        parse_mode="HTML"
+    )
     await bot.send_message(ADMIN_ID, f"🆘 <b>НОВЫЙ ТИКЕТ</b>\n🆔 <code>{callback.from_user.id}</code>\n👤 @{callback.from_user.username}\n<i>[TICKET_ID: {callback.from_user.id}]</i>", parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "close_ticket")
+async def close_ticket_handler(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.answer("✅ <b>Тикет закрыт.</b> Вы вернулись в главное меню.", reply_markup=main_keyboard(), parse_mode="HTML")
+    await bot.send_message(ADMIN_ID, f"🚫 <b>Тикет закрыт пользователем</b>\n🆔 <code>{callback.from_user.id}</code>", parse_mode="HTML")
     await callback.answer()
 
 @dp.message(TicketFlow.in_ticket)
@@ -185,30 +194,25 @@ async def admin_panel(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "adm_stats", F.from_user.id == ADMIN_ID)
 async def adm_stats(callback: types.CallbackQuery):
-    await callback.message.answer(f"📊 <b>Статистика:</b>\n\nЮзеров в базе: <code>{len(users_db)}</code>\nКлючей: <code>{len(keys_db)}</code>", parse_mode="HTML")
+    await callback.message.answer(f"📊 <b>Статистика:</b>\nЮзеров: <code>{len(users_db)}</code>", parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
 async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("📢 <b>Отправьте сообщение для рассылки (текст/фото/файл):</b>", parse_mode="HTML")
+    await callback.message.answer("📢 <b>Отправьте сообщение для рассылки:</b>", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_ad)
     await callback.answer()
 
 @dp.message(AdminStates.waiting_for_ad, F.from_user.id == ADMIN_ID)
 async def perform_broadcast(message: types.Message, state: FSMContext):
     await state.clear()
-    if not users_db:
-        await message.answer("❌ В базе нет пользователей.")
-        return
     count = 0
-    await message.answer(f"⏳ Рассылка запущена для {len(users_db)} пользователей...")
     for uid in list(users_db):
         try:
             await bot.copy_message(chat_id=uid, from_chat_id=message.chat.id, message_id=message.message_id)
             count += 1
             await asyncio.sleep(0.05)
-        except:
-            continue
+        except: continue
     await message.answer(f"✅ Рассылка завершена! Получили: <b>{count}</b>", parse_mode="HTML")
 
 # --- ПОКУПКА ---
@@ -216,7 +220,7 @@ async def perform_broadcast(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(BuyFlow.waiting_for_promo)
-    await callback.message.answer("🎟 <b>У вас есть промокод?</b>\nЕсли нет, просто нажмите кнопку ниже:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
+    await callback.message.answer("🎟 <b>Введите промокод</b> или пропустите:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "skip_promo", BuyFlow.waiting_for_promo)
@@ -231,7 +235,7 @@ async def buy_promo(message: types.Message, state: FSMContext):
     discount = promo_db[code]["percent"] if code in promo_db else 0
     await state.update_data(discount=discount)
     await state.set_state(BuyFlow.waiting_for_plan)
-    await message.answer(f"✅ Код применен! Скидка: {discount}%" if discount > 0 else "❌ Промокод не найден.", reply_markup=plans_kb(discount), parse_mode="HTML")
+    await message.answer(f"✅ Скидка: {discount}%", reply_markup=plans_kb(discount), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("plan_"), BuyFlow.waiting_for_plan)
 async def buy_final(callback: types.CallbackQuery, state: FSMContext):
@@ -241,29 +245,27 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     final_price = math.ceil(price * (1 - data.get("discount", 0) / 100))
     
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer(f"🧾 <b>Счёт сформирован</b>\n📦 Тариф: {name}\n💵 К оплате: <b>{final_price}₽</b>\n\nПожалуйста, отправьте чек об оплате сообщением ниже:", parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"💰 <b>НОВЫЙ ЗАКАЗ</b>\n🆔 {callback.from_user.id}\n📦 {name}\n💵 {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", parse_mode="HTML")
+    await callback.message.answer(f"🧾 <b>Счёт: {final_price}₽</b>\nОтправьте чек сюда.", reply_markup=close_ticket_kb(), parse_mode="HTML")
+    await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n🆔 {callback.from_user.id}\n📦 {name}\n💵 {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", parse_mode="HTML")
     await callback.answer()
 
 # --- КЛЮЧИ ---
 
 @dp.callback_query(F.data == "activate_key")
 async def key_start(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("⌨️ <b>Введите ваш лицензионный ключ:</b>", parse_mode="HTML")
+    await callback.message.answer("⌨️ <b>Введите ключ:</b>", parse_mode="HTML")
     await state.set_state(KeyFlow.waiting_for_key)
 
 @dp.message(KeyFlow.waiting_for_key)
 async def key_check(message: types.Message, state: FSMContext):
     key = message.text.strip()
     if key in keys_db:
-        data = keys_db.pop(key)
         await state.set_state(TicketFlow.in_ticket)
-        await message.answer(f"✅ <b>Ключ активирован!</b>\n📦 Тариф: {PLANS[data['plan']]}\n\nНапишите в поддержку для получения данных.", parse_mode="HTML")
+        await message.answer("✅ <b>Ключ активирован!</b> Напишите в поддержку.", reply_markup=close_ticket_kb(), parse_mode="HTML")
     else:
-        await message.answer("❌ <b>Ключ не найден или уже использован.</b>", parse_mode="HTML")
+        await message.answer("❌ Ключ не найден.", parse_mode="HTML")
 
 # --- ЗАПУСК ---
-
 async def main():
     await dp.start_polling(bot)
 
