@@ -264,7 +264,29 @@ async def perform_broadcast(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "free_version")
 async def free_v(callback: types.CallbackQuery):
-    await callback.message.answer(f"📥 <a href='{FREE_VERSION_URL}'>Скачать JAR</a>", parse_mode="HTML")
+    # Создаем клавиатуру с кнопкой скачивания и возвратом
+    download_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Скачать SacredVisuals (JAR)", url=FREE_VERSION_URL)],
+        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="back_to_main")]
+    ])
+    
+    # Текст с пошаговой инструкцией
+    instruction_text = (
+        "🆓 <b>Бесплатная версия SacredVisuals</b>\n\n"
+        "<b>Инструкция по установке:</b>\n"
+        "1️⃣ Установите Minecraft <b>Fabric 1.21.4</b>\n"
+        "2️⃣ Скачайте мод <a href='https://minecraft-inside.ru/mods/94725-fabric-api.html'>FabricAPI</a>\n"
+        "3️⃣ Переместите файлы <code>FabricAPI</code> и <code>SacredVisuals-FREE</code> в папку <code>mods</code>\n\n"
+        "✨ <b>Удачного использования!</b>"
+    )
+    
+    await callback.message.edit_text(
+        text=instruction_text,
+        reply_markup=download_kb,
+        parse_mode="HTML",
+        disable_web_page_preview=True  # Чтобы не вылезало превью сайта с модами
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data == "adm_stats", F.from_user.id == ADMIN_ID)
 async def adm_stats(callback: types.CallbackQuery):
