@@ -17,7 +17,7 @@ API_TOKEN = os.getenv("BOT_TOKEN") or '8311674459:AAG9Ac0Dmwk7HTW1jY7i1srxFawOMG
 ADMIN_ID = 5822741823  
 CHANNEL_ID = '@sacredvisuals' 
 CHANNEL_URL = 'https://t.me/sacredvisuals'
-FREE_VERSION_URL = "https://t.me/sacredvisuals/1"
+FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/fud621oa9imlxniv4vpx6/SacredVisuals-1.21.4-FREE.jar?rlkey=enae4vae8pszr96adcgewzf3c&st=hhgt0vqf&dl=1"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
