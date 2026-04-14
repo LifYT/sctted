@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# --- БАЗЫ ---
+# --- БАЗЫ (ВНИМАНИЕ: очищаются при перезапуске бота) ---
 promo_db = {"LIF": {"percent": 10, "desc": "Скидка 10%"}}
 users_db = set()
 keys_db = {}
@@ -88,7 +88,8 @@ def plans_kb(discount_percent=0):
 
 # --- ОБРАБОТЧИКИ ---
 
-@dp.message(Command("start"), state="*")
+# В aiogram 3.x для "любого состояния" просто не указываем фильтр state или используем кастомный
+@dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     users_db.add(message.from_user.id)
@@ -98,24 +99,47 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# --- АДМИН ПАНЕЛЬ (ОБНОВЛЕННАЯ) ---
-
-@dp.message(Command("admin"), state="*")
+@dp.message(Command("admin"))
 async def admin_panel(message: types.Message, state: FSMContext):
-    # Проверка на админа внутри функции для надежности
     if message.from_user.id != ADMIN_ID:
         return 
+    await state.clear()
+    await message.answer("🛠 <b>Панель администратора</b>", reply_markup=admin_main_kb(), parse_mode="HTML")
 
-    await state.clear() # Принудительный сброс состояний
-    await message.answer(
-        "🛠 <b>Панель администратора</b>\nВыберите действие:", 
-        reply_markup=admin_main_kb(), 
-        parse_mode="HTML"
-    )
+# --- РАССЫЛКА ---
+
+@dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
+async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("📢 <b>Отправьте сообщение для рассылки:</b>\n(Текст, фото или файл)", parse_mode="HTML")
+    await state.set_state(AdminStates.waiting_for_ad)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_ad, F.from_user.id == ADMIN_ID)
+async def perform_broadcast(message: types.Message, state: FSMContext):
+    await state.clear()
+    if not users_db:
+        await message.answer("❌ База пользователей пуста (после перезапуска бота все должны нажать /start).")
+        return
+
+    count = 0
+    msg = await message.answer(f"⏳ Рассылка запущена для {len(users_db)} чел...")
+    
+    for uid in list(users_db):
+        try:
+            await bot.copy_message(chat_id=uid, from_chat_id=message.chat.id, message_id=message.message_id)
+            count += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logging.error(f"Ошибка рассылки юзеру {uid}: {e}")
+            continue
+            
+    await msg.edit_text(f"✅ Рассылка завершена!\nПолучили: <b>{count}</b> из <b>{len(users_db)}</b>", parse_mode="HTML")
+
+# --- ОСТАЛЬНАЯ ЛОГИКА ---
 
 @dp.callback_query(F.data == "adm_stats", F.from_user.id == ADMIN_ID)
 async def adm_stats(callback: types.CallbackQuery):
-    await callback.message.answer(f"📊 <b>Статистика:</b>\n\nЮзеров в базе: <code>{len(users_db)}</code>\nАктивных ключей: <code>{len(keys_db)}</code>", parse_mode="HTML")
+    await callback.message.answer(f"📊 <b>Статистика:</b>\n\nЮзеров в базе: <code>{len(users_db)}</code>\nКлючей: <code>{len(keys_db)}</code>", parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "adm_list", F.from_user.id == ADMIN_ID)
@@ -125,13 +149,13 @@ async def adm_list_keys(callback: types.CallbackQuery):
         text += "<i>Список пуст</i>"
     else:
         for k, v in keys_db.items():
-            text += f"• <code>{k}</code> — {PLANS.get(v['plan'])} ({v['desc']})\n"
+            text += f"• <code>{k}</code> — {PLANS.get(v['plan'])}\n"
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "adm_addkey", F.from_user.id == ADMIN_ID)
 async def adm_addkey_step1(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("⌨️ Введите данные ключа в формате:\n<code>КЛЮЧ ТАРИФ ОПИСАНИЕ</code>\n\nТарифы: <b>week, month, life</b>", parse_mode="HTML")
+    await callback.message.answer("⌨️ Введите: <code>КЛЮЧ ТАРИФ ОПИСАНИЕ</code>\n(week, month, life)", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_key_data)
     await callback.answer()
 
@@ -139,64 +163,23 @@ async def adm_addkey_step1(callback: types.CallbackQuery, state: FSMContext):
 async def adm_addkey_step2(message: types.Message, state: FSMContext):
     try:
         parts = message.text.split(maxsplit=2)
-        key, plan, desc = parts[0], parts[1], parts[2]
-        if plan not in PLANS:
-            return await message.answer("❌ Ошибка в тарифе. Используйте: week, month или life")
-        keys_db[key] = {"plan": plan, "desc": desc}
-        await message.answer(f"✅ Ключ <code>{key}</code> успешно добавлен!", parse_mode="HTML", reply_markup=admin_main_kb())
+        keys_db[parts[0]] = {"plan": parts[1], "desc": parts[2]}
+        await message.answer(f"✅ Ключ <code>{parts[0]}</code> добавлен!", reply_markup=admin_main_kb(), parse_mode="HTML")
         await state.clear()
     except:
-        await message.answer("❌ Ошибка формата! Пример: <code>GOLD-123 week Для теста</code>")
-
-@dp.callback_query(F.data == "adm_addpromo", F.from_user.id == ADMIN_ID)
-async def adm_addpromo_step1(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("🎟 Введите промокод в формате:\n<code>КОД ПРОЦЕНТ</code>", parse_mode="HTML")
-    await state.set_state(AdminStates.waiting_for_promo_data)
-    await callback.answer()
-
-@dp.message(AdminStates.waiting_for_promo_data, F.from_user.id == ADMIN_ID)
-async def adm_addpromo_step2(message: types.Message, state: FSMContext):
-    try:
-        parts = message.text.split()
-        code, percent = parts[0].upper(), int(parts[1])
-        promo_db[code] = {"percent": percent, "desc": f"Скидка {percent}%"}
-        await message.answer(f"✅ Промокод <b>{code}</b> на {percent}% добавлен!", parse_mode="HTML", reply_markup=admin_main_kb())
-        await state.clear()
-    except:
-        await message.answer("❌ Ошибка формата! Пример: <code>SALE50 50</code>")
-
-@dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
-async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("📢 <b>Отправьте сообщение для рассылки:</b>\n(Текст, фото или файл)", parse_mode="HTML")
-    await state.set_state(AdminStates.waiting_for_ad)
-    await callback.answer()
-
-# --- ЛОГИКА ТИКЕТОВ И РАССЫЛКИ ---
-
-@dp.message(AdminStates.waiting_for_ad, F.from_user.id == ADMIN_ID)
-async def perform_broadcast(message: types.Message, state: FSMContext):
-    count = 0
-    await message.answer("⏳ Рассылка запущена...")
-    for uid in list(users_db):
-        try:
-            await bot.copy_message(uid, message.chat.id, message.message_id)
-            count += 1
-            await asyncio.sleep(0.05)
-        except: continue
-    await message.answer(f"✅ Рассылка завершена! Получили: <b>{count}</b> чел.", parse_mode="HTML")
-    await state.clear()
+        await message.answer("❌ Формат: <code>KEY week Test</code>")
 
 @dp.callback_query(F.data == "support")
 async def support_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer("🆘 <b>Чат с поддержкой открыт!</b>\nНапишите сообщение:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
-    await bot.send_message(ADMIN_ID, f"🆘 <b>НОВЫЙ ТИКЕТ</b>\n👤 @{callback.from_user.username}\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
+    await callback.message.answer("🆘 <b>Чат открыт!</b> Напишите сообщение:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
+    await bot.send_message(ADMIN_ID, f"🆘 <b>НОВЫЙ ТИКЕТ</b>\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>", reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
     await callback.answer()
 
 @dp.message(TicketFlow.in_ticket)
 async def ticket_relay(message: types.Message):
-    if message.text == "/start" or message.text == "/admin": return
-    header = f"📩 <b>Сообщение от юзера</b>\n👤 @{message.from_user.username} | 🆔 <code>{message.from_user.id}</code>\n━━━━━━━━━━━━━━\n"
+    if message.text and message.text.startswith("/"): return
+    header = f"📩 <b>Сообщение от юзера</b>\n🆔 <code>{message.from_user.id}</code>\n━━━━━━━━━━━━━━\n"
     footer = f"\n━━━━━━━━━━━━━━\n<i>[TICKET_ID: {message.from_user.id}]</i>"
     await bot.copy_message(ADMIN_ID, message.chat.id, message.message_id, caption=f"{header}{message.caption or ''}{footer}", parse_mode="HTML")
 
@@ -207,37 +190,27 @@ async def admin_reply(message: types.Message):
         uid = int(raw_text.split("[TICKET_ID:")[1].split("]")[0])
         await bot.copy_message(uid, message.chat.id, message.message_id)
     except:
-        await message.answer("❌ Ошибка: ответьте на сообщение с TICKET_ID.")
-
-@dp.callback_query(F.data.startswith("adm_close_"))
-async def admin_close_btn(callback: types.CallbackQuery):
-    uid = int(callback.data.split("_")[2])
-    await dp.storage.set_state(StorageKey(bot_id=bot.id, chat_id=uid, user_id=uid), None)
-    await bot.send_message(uid, "✅ <b>Тикет закрыт администратором.</b>", reply_markup=main_keyboard(), parse_mode="HTML")
-    await callback.message.edit_text(callback.message.text + "\n\n🛑 <b>ЗАКРЫТО</b>", parse_mode="HTML")
-    await callback.answer("Закрыто")
-
-# --- ЛОГИКА КЛИЕНТА ---
+        pass
 
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(BuyFlow.waiting_for_promo)
-    await callback.message.answer("🎟 <b>Введите промокод:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
+    await callback.message.answer("🎟 <b>Промокод?</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]]), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "skip_promo", BuyFlow.waiting_for_promo)
 async def buy_skip(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(promo="Нет", discount=0)
+    await state.update_data(discount=0)
     await state.set_state(BuyFlow.waiting_for_plan)
-    await callback.message.edit_text("🛒 <b>Выберите тариф:</b>", reply_markup=plans_kb(0), parse_mode="HTML")
+    await callback.message.edit_text("🛒 <b>Тариф:</b>", reply_markup=plans_kb(0), parse_mode="HTML")
 
 @dp.message(BuyFlow.waiting_for_promo)
 async def buy_promo(message: types.Message, state: FSMContext):
     code = message.text.upper()
     discount = promo_db[code]["percent"] if code in promo_db else 0
-    await state.update_data(promo=code if discount > 0 else "Нет", discount=discount)
+    await state.update_data(discount=discount)
     await state.set_state(BuyFlow.waiting_for_plan)
-    await message.answer(f"✅ Скидка {discount}%" if discount > 0 else "❌ Без скидки", reply_markup=plans_kb(discount), parse_mode="HTML")
+    await message.answer(f"✅ Скидка {discount}%" if discount > 0 else "❌ Нет скидки", reply_markup=plans_kb(discount), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("plan_"), BuyFlow.waiting_for_plan)
 async def buy_final(callback: types.CallbackQuery, state: FSMContext):
@@ -245,9 +218,9 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     plans_map = {"plan_week": ("Неделя", 69), "plan_month": ("Месяц", 189), "plan_life": ("Навсегда", 369)}
     name, price = plans_map[callback.data]
     final_price = math.ceil(price * (1 - data.get("discount", 0) / 100))
-    await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n👤 @{callback.from_user.username}\n📦 {name}\n💵 {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", parse_mode="HTML")
+    await bot.send_message(ADMIN_ID, f"💰 <b>ЗАКАЗ</b>\n🆔 {callback.from_user.id}\n📦 {name}\n💵 {final_price}₽\n<i>[TICKET_ID: {callback.from_user.id}]</i>", parse_mode="HTML")
     await state.set_state(TicketFlow.in_ticket)
-    await callback.message.answer(f"🧾 К оплате: <b>{final_price}₽</b>\nОтправьте чек сюда:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
+    await callback.message.answer(f"🧾 К оплате: <b>{final_price}₽</b>\nЖдем чек:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "activate_key")
@@ -262,19 +235,18 @@ async def key_check(message: types.Message, state: FSMContext):
         data = keys_db.pop(key)
         await state.set_state(TicketFlow.in_ticket)
         await message.answer(f"✅ Ключ на <b>{PLANS[data['plan']]}</b> активен!", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
-        await bot.send_message(ADMIN_ID, f"🟢 Активирован ключ: <code>{key}</code>\nЮзер: @{message.from_user.username} [TICKET_ID: {message.from_user.id}]", parse_mode="HTML")
     else:
         await message.answer("❌ Неверный ключ.")
 
 @dp.callback_query(F.data == "free_version")
 async def free_v(callback: types.CallbackQuery):
-    await callback.message.answer(f"📥 <a href='{FREE_VERSION_URL}'>Скачать бесплатную версию</a>", parse_mode="HTML")
+    await callback.message.answer(f"📥 <a href='{FREE_VERSION_URL}'>Скачать</a>", parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "user_close_ticket")
 async def user_close(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer("🤝 Тикет закрыт. Нажмите /start для меню.")
+    await callback.message.answer("🤝 Тикет закрыт.")
     await callback.answer()
 
 async def main():
