@@ -15,8 +15,8 @@ if sys.platform == 'win32':
 
 # --- КОНФИГ ---
 API_TOKEN = '8311674459:AAG9Ac0Dmwk7HTW1jY7i1srxFawOMG73-Fg'
-ADMIN_ID = 5822741823  
-CHANNEL_ID = '@sacredvisuals' 
+ADMIN_IDS = {5822741823, 7113659622}  # 👈 Добавляй айди через запятую
+CHANNEL_ID = '@sacredvisuals'
 CHANNEL_URL = 'https://t.me/sacredvisuals'
 FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/fud621oa9imlxniv4vpx6/SacredVisuals-1.21.4-FREE.jar?rlkey=enae4vae8pszr96adcgewzf3c&st=hhgt0vqf&dl=1"
 
@@ -61,6 +61,14 @@ class AdminStates(StatesGroup):
     waiting_for_ad = State()
     waiting_for_key_data = State()
     waiting_for_promo_data = State()
+
+# --- ХЕЛПЕР: рассылка всем админам ---
+async def notify_admins(text, reply_markup=None, parse_mode="HTML"):
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception as e:
+            logging.warning(f"Не удалось отправить сообщение админу {admin_id}: {e}")
 
 # --- КЛАВИАТУРЫ ---
 def main_keyboard():
@@ -110,18 +118,18 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message, state: FSMContext):
-    if message.from_user.id == ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         await state.clear()
         await message.answer("🛠 <b>Панель администратора</b>", reply_markup=admin_main_kb(), parse_mode="HTML")
 
 # --- АДМИНКА (КЛЮЧИ / ПРОМО) ---
-@dp.callback_query(F.data == "adm_addkey", F.from_user.id == ADMIN_ID)
+@dp.callback_query(F.data == "adm_addkey", F.from_user.id.in_(ADMIN_IDS))
 async def adm_addkey_step1(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("⌨️ Введите: <code>КЛЮЧ ТАРИФ ОПИСАНИЕ</code>\nДоступные тарифы: week, month, life", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_key_data)
     await callback.answer()
 
-@dp.message(AdminStates.waiting_for_key_data, F.from_user.id == ADMIN_ID)
+@dp.message(AdminStates.waiting_for_key_data, F.from_user.id.in_(ADMIN_IDS))
 async def adm_addkey_step2(message: types.Message, state: FSMContext):
     try:
         parts = message.text.split(maxsplit=2)
@@ -132,13 +140,13 @@ async def adm_addkey_step2(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка. Формат: <code>KEY week MyDesc</code>")
 
-@dp.callback_query(F.data == "adm_addpromo", F.from_user.id == ADMIN_ID)
+@dp.callback_query(F.data == "adm_addpromo", F.from_user.id.in_(ADMIN_IDS))
 async def adm_addpromo_step1(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("🎟 Введите: <code>ПРОМО ПРОЦЕНТ</code>\nНапример: <code>SUMMER 20</code>", parse_mode="HTML")
     await state.set_state(AdminStates.waiting_for_promo_data)
     await callback.answer()
 
-@dp.message(AdminStates.waiting_for_promo_data, F.from_user.id == ADMIN_ID)
+@dp.message(AdminStates.waiting_for_promo_data, F.from_user.id.in_(ADMIN_IDS))
 async def adm_addpromo_step2(message: types.Message, state: FSMContext):
     try:
         parts = message.text.split()
@@ -151,8 +159,7 @@ async def adm_addpromo_step2(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка. Формат: <code>PROMO 15</code>")
 
-# ✅ ФИКС 2: Список ключей теперь работает
-@dp.callback_query(F.data == "adm_list", F.from_user.id == ADMIN_ID)
+@dp.callback_query(F.data == "adm_list", F.from_user.id.in_(ADMIN_IDS))
 async def adm_list_keys(callback: types.CallbackQuery):
     if not keys_db:
         await callback.message.answer("📭 Список ключей пуст.", reply_markup=admin_main_kb())
@@ -161,7 +168,6 @@ async def adm_list_keys(callback: types.CallbackQuery):
         for key, data in keys_db.items():
             plan_name = PLANS.get(data['plan'], data['plan'])
             lines.append(f"🔑 <code>{key}</code> — {plan_name} | {data['desc']}")
-        # Телеграм лимит ~4096 символов, режем если много ключей
         text = "\n".join(lines)
         if len(text) > 4000:
             text = text[:4000] + "\n\n...и ещё больше ключей."
@@ -173,23 +179,21 @@ async def adm_list_keys(callback: types.CallbackQuery):
 async def support_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(TicketFlow.in_ticket)
     await callback.message.answer("🆘 <b>Чат открыт!</b> Напишите ваше сообщение прямо сюда:", reply_markup=user_close_ticket_kb(), parse_mode="HTML")
-    
+
     username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
-    await bot.send_message(
-        ADMIN_ID, 
-        f"📩 <b>НОВЫЙ ТИКЕТ ОТКРЫТ</b>\n👤 Юзер: {username}\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>", 
-        reply_markup=admin_close_ticket_kb(callback.from_user.id), 
-        parse_mode="HTML"
+    await notify_admins(
+        f"📩 <b>НОВЫЙ ТИКЕТ ОТКРЫТ</b>\n👤 Юзер: {username}\n🆔 <code>{callback.from_user.id}</code>\n<i>[TICKET_ID: {callback.from_user.id}]</i>",
+        reply_markup=admin_close_ticket_kb(callback.from_user.id)
     )
     await callback.answer()
 
 @dp.message(TicketFlow.in_ticket)
 async def ticket_relay(message: types.Message):
     if message.text and message.text.startswith("/"): return
-    
+
     username = f"@{message.from_user.username}" if message.from_user.username else "Скрыт"
     user_text = message.text or "[Вложение: фото/файл/эмодзи]"
-    
+
     report_text = (
         f"📨 <b>Сообщение от юзера</b>\n"
         f"👤 Юзер: {username}\n"
@@ -199,25 +203,29 @@ async def ticket_relay(message: types.Message):
         f"━━━━━━━━━━━━━━\n"
         f"<i>[TICKET_ID: {message.from_user.id}]</i>"
     )
-    
-    if message.photo or message.document or message.video:
-        await bot.copy_message(
-            ADMIN_ID, 
-            message.chat.id, 
-            message.message_id, 
-            caption=report_text, 
-            parse_mode="HTML",
-            reply_markup=admin_close_ticket_kb(message.from_user.id)
-        )
-    else:
-        await bot.send_message(
-            ADMIN_ID, 
-            report_text, 
-            parse_mode="HTML",
-            reply_markup=admin_close_ticket_kb(message.from_user.id)
-        )
 
-@dp.message(F.chat.id == ADMIN_ID, F.reply_to_message)
+    for admin_id in ADMIN_IDS:
+        try:
+            if message.photo or message.document or message.video:
+                await bot.copy_message(
+                    admin_id,
+                    message.chat.id,
+                    message.message_id,
+                    caption=report_text,
+                    parse_mode="HTML",
+                    reply_markup=admin_close_ticket_kb(message.from_user.id)
+                )
+            else:
+                await bot.send_message(
+                    admin_id,
+                    report_text,
+                    parse_mode="HTML",
+                    reply_markup=admin_close_ticket_kb(message.from_user.id)
+                )
+        except Exception as e:
+            logging.warning(f"Не удалось переслать тикет админу {admin_id}: {e}")
+
+@dp.message(F.chat.id.in_(ADMIN_IDS), F.reply_to_message)
 async def admin_reply(message: types.Message):
     try:
         raw_text = message.reply_to_message.text or message.reply_to_message.caption
@@ -234,7 +242,6 @@ async def admin_close_handler(callback: types.CallbackQuery):
         user_state = dp.fsm.resolve_context(bot, uid, uid)
         await user_state.clear()
         await bot.send_message(uid, "✅ <b>Администратор закрыл тикет.</b>\nВы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
-        # Вытаскиваем юзернейм из текста сообщения
         raw_text = callback.message.text or callback.message.caption or ""
         try:
             username = raw_text.split("Юзер:")[1].split("\n")[0].strip()
@@ -249,17 +256,17 @@ async def user_close(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.answer("🤝 Тикет закрыт. Вы вернулись в меню.", reply_markup=main_keyboard(), parse_mode="HTML")
     username = f"@{callback.from_user.username}" if callback.from_user.username else f"(без юзернейма, ID: {callback.from_user.id})"
-    await bot.send_message(ADMIN_ID, f"🚫 Юзер {username} закрыл тикет сам.")
+    await notify_admins(f"🚫 Юзер {username} закрыл тикет сам.")
     await callback.answer()
 
 # --- ПОКУПКА ---
 @dp.callback_query(F.data == "buy")
 async def buy_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(BuyFlow.waiting_for_promo)
-    await callback.message.answer("🎟 <b>Введите промокод</b> (или нажмите пропустить):", 
-                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                     [InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]
-                                 ]), parse_mode="HTML")
+    await callback.message.answer("🎟 <b>Введите промокод</b> (или нажмите пропустить):",
+                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                      [InlineKeyboardButton(text="❌ Пропустить", callback_data="skip_promo")]
+                                  ]), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "skip_promo", BuyFlow.waiting_for_promo)
@@ -282,23 +289,23 @@ async def buy_promo(message: types.Message, state: FSMContext):
 async def buy_final(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plans_map = {"plan_week": ("Неделя", 69), "plan_month": ("Месяц", 189), "plan_life": ("Навсегда", 369)}
-    
+
     plan_data = plans_map.get(callback.data)
     if not plan_data:
         return await callback.answer("Ошибка выбора тарифа")
-        
+
     name, price = plan_data
     discount = data.get("discount", 0)
     final_price = math.ceil(price * (1 - discount / 100))
-    
+
     await state.set_state(TicketFlow.in_ticket)
-    
+
     await callback.message.answer(
-        f"🧾 К оплате: <b>{final_price}₽</b>\nЖдите подробной инструкции к оплате.", 
-        reply_markup=user_close_ticket_kb(), 
+        f"🧾 К оплате: <b>{final_price}₽</b>\nЖдите подробной инструкции к оплате.",
+        reply_markup=user_close_ticket_kb(),
         parse_mode="HTML"
     )
-    
+
     username = f"@{callback.from_user.username}" if callback.from_user.username else "Скрыт"
     admin_text = (
         f"💰 <b>НОВЫЙ ЗАКАЗ</b>\n"
@@ -308,16 +315,16 @@ async def buy_final(callback: types.CallbackQuery, state: FSMContext):
         f"💵 Цена: {final_price}₽\n"
         f"<i>[TICKET_ID: {callback.from_user.id}]</i>"
     )
-    await bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_close_ticket_kb(callback.from_user.id), parse_mode="HTML")
+    await notify_admins(admin_text, reply_markup=admin_close_ticket_kb(callback.from_user.id))
     await callback.answer()
 
 # --- РАССЫЛКА ---
-@dp.callback_query(F.data == "adm_broadcast", F.from_user.id == ADMIN_ID)
+@dp.callback_query(F.data == "adm_broadcast", F.from_user.id.in_(ADMIN_IDS))
 async def adm_broadcast_step1(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("📢 Отправьте сообщение для рассылки:")
     await state.set_state(AdminStates.waiting_for_ad)
 
-@dp.message(AdminStates.waiting_for_ad, F.from_user.id == ADMIN_ID)
+@dp.message(AdminStates.waiting_for_ad, F.from_user.id.in_(ADMIN_IDS))
 async def perform_broadcast(message: types.Message, state: FSMContext):
     await state.clear()
     count = 0
@@ -350,7 +357,7 @@ async def free_v(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-@dp.callback_query(F.data == "adm_stats", F.from_user.id == ADMIN_ID)
+@dp.callback_query(F.data == "adm_stats", F.from_user.id.in_(ADMIN_IDS))
 async def adm_stats(callback: types.CallbackQuery):
     await callback.message.answer(f"📊 Статистика:\nЮзеров: {len(users_db)}\nКлючей: {len(keys_db)}")
 
@@ -360,7 +367,6 @@ async def key_start(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(KeyFlow.waiting_for_key)
     await callback.answer()
 
-# ✅ ФИКС 1 и 3: уведомление админу + правильное сообщение об ошибке
 @dp.message(KeyFlow.waiting_for_key)
 async def key_check(message: types.Message, state: FSMContext):
     key = message.text.strip()
@@ -369,7 +375,6 @@ async def key_check(message: types.Message, state: FSMContext):
         save_json(KEYS_FILE, keys_db)
         plan_name = PLANS.get(data['plan'], data['plan'])
 
-        # Пользователю
         await state.set_state(TicketFlow.in_ticket)
         await message.answer(
             f"✅ Ключ на <b>{plan_name}</b> активирован!\n"
@@ -378,7 +383,6 @@ async def key_check(message: types.Message, state: FSMContext):
             parse_mode="HTML"
         )
 
-        # Уведомление админу
         username = f"@{message.from_user.username}" if message.from_user.username else "Скрыт"
         admin_text = (
             f"🔑 <b>КЛЮЧ АКТИВИРОВАН</b>\n"
@@ -391,14 +395,8 @@ async def key_check(message: types.Message, state: FSMContext):
             f"━━━━━━━━━━━━━━\n"
             f"<i>[TICKET_ID: {message.from_user.id}]</i>"
         )
-        await bot.send_message(
-            ADMIN_ID,
-            admin_text,
-            reply_markup=admin_close_ticket_kb(message.from_user.id),
-            parse_mode="HTML"
-        )
+        await notify_admins(admin_text, reply_markup=admin_close_ticket_kb(message.from_user.id))
     else:
-        # ✅ ФИКС 3: правильный текст если ключ не найден
         await message.answer("❌ Ключ не найден или уже был использован.")
         await state.clear()
 
