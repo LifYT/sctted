@@ -18,7 +18,7 @@ API_TOKEN = '8311674459:AAG9Ac0Dmwk7HTW1jY7i1srxFawOMG73-Fg'
 ADMIN_IDS = {5822741823, 7113659622}  # 👈 Добавляй айди через запятую
 CHANNEL_ID = '@sacredvisuals'
 CHANNEL_URL = 'https://t.me/sacredvisuals'
-FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/fud621oa9imlxniv4vpx6/SacredVisuals-1.21.4-FREE.jar?rlkey=enae4vae8pszr96adcgewzf3c&st=hhgt0vqf&dl=1"
+FREE_VERSION_URL = "https://www.dropbox.com/scl/fi/foggi7yxcfv900fefj9gf/SacredVisuals-FREE.jar?rlkey=1ggajqgw9ohk3zsdhrpzmiop2&st=a3wea4qf&dl=1"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
